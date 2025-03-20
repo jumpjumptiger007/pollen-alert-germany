@@ -402,7 +402,10 @@ def format_email_content(data, language='en'):
             <p>{text['greeting']}</p>
             <div class="footer">
                 <p>{text['footer_auto']}</p>
-                <p>{text['footer_source']}</p>
+                <p>{text['footer_source']} <a href="https://www.wetteronline.de/pollen" target="_blank" style="color: #3498db;">wetteronline.de</a></p>
+                <footer class="page-footer">
+                    <p>© 2025 <a href="https://yliu.tech/" class="text-blue-600 hover:underline" style="color: #3498db;">Yiqiang Adrian Liu</a>. All rights reserved. View the full project on <a href="https://github.com/jumpjumptiger007/pollen-alert-germany" class="text-blue-600 hover:underline" style="color: #3498db;">GitHub</a></p>
+                </footer>
             </div>
         </div>
     </body>
