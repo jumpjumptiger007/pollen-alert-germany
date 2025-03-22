@@ -73,6 +73,265 @@ def scrape_pollen_data(city=None):
         except Exception as e:
             logging.warning(f"Error getting date label: {e}")
 
+        # Create mapping dictionary to convert CSS class names to concentration values
+        burden_to_concentration = {
+            'noburden': '0',      # None
+            'weakburden': '1',    # Low
+            'moderateburden': '2', # Medium
+            'strongburden': '3'    # High
+        }
+        
+        # Define all pollen types to ensure we capture all 14 types
+        pollen_types = {
+            'amb': 'Ambrosia',  # Ragweed
+            'rum': 'Ampfer',    # Sorrel
+            'mug': 'Beifuß',    # Mugwort
+            'bir': 'Birke',     # Birch
+            'buc': 'Buche',     # Beech
+            'erl': 'Erle',      # Alder
+            'esc': 'Esche',     # Ash
+            'gra': 'Gräser',    # Grasses
+            'has': 'Hasel',     # Hazel
+            'pop': 'Pappel',    # Poplar
+            'rye': 'Roggen',    # Rye
+            'elm': 'Ulme',      # Elm
+            'pla': 'Wegerich',  # Plantain
+            'wil': 'Weide',     # Willow
+        }
+        
+        # Store scraped pollen data
+        pollen_items = []
+        
+        # Method 1: Try to get pollen data from the grid layout structure
+        grid_items = soup.select('div.grid_item_pollen_tabelle')
+        if grid_items:
+            logging.info(f"Found {len(grid_items)} grid items, trying to parse using new layout")
+            
+            # Collect pollen text elements and burden elements
+            pollen_text_elems = soup.select('div.polle_text')
+            logging.info(f"Found {len(pollen_text_elems)} pollen text elements")
+            
+            for text_elem in pollen_text_elems:
+                try:
+                    pollen_type = text_elem.text.strip()
+                    pollen_id = text_elem.get('id', '').replace('_text', '')
+                    
+                    # Find the corresponding burden element (next sibling with class polle_burden)
+                    burden_elem = text_elem.find_next('div', class_='polle_burden')
+                    
+                    if burden_elem:
+                        # Extract concentration from CSS classes
+                        classes = burden_elem.get('class', [])
+                        concentration = '0'  # Default to 0
+                        
+                        for cls in classes:
+                            if cls in burden_to_concentration:
+                                concentration = burden_to_concentration[cls]
+                                break
+                        
+                        # If still 0, try to get from data-day0 attribute (which represents current day)
+                        if concentration == '0' and burden_elem.has_attr('data-day0'):
+                            day0_value = burden_elem['data-day0']
+                            if day0_value in burden_to_concentration:
+                                concentration = burden_to_concentration[day0_value]
+                        
+                        # Add to result list
+                        pollen_items.append({
+                            'type': pollen_type,
+                            'concentration': concentration
+                        })
+                        logging.info(f"Found pollen from grid: {pollen_type}, concentration: {concentration}")
+                except Exception as e:
+                    logging.warning(f"Error processing grid pollen item: {e}")
+        
+        # Method 2: Try old parsing method if new method failed
+        if not pollen_items:
+            logging.info("Grid layout parsing failed, trying old parsing method")
+            
+            # Find pollen data rows
+            pollen_rows = soup.select('div.pollenflug-items div.row')
+            logging.info(f"Found {len(pollen_rows)} rows of pollen data")
+            
+            for row in pollen_rows:
+                pollen_items_in_row = row.select('div.pollenflug-item')
+                
+                for item in pollen_items_in_row:
+                    try:
+                        # Get pollen type name
+                        name_elem = item.select_one('div.name')
+                        if not name_elem:
+                            continue
+                        
+                        pollen_type = name_elem.text.strip()
+                        
+                        # Get concentration value
+                        grad_elem = item.select_one('div.grad')
+                        concentration = '0'  # Default to 0
+                        
+                        if grad_elem:
+                            # Concentration value is directly in the element text
+                            grad_text = grad_elem.text.strip()
+                            if grad_text.isdigit() and 0 <= int(grad_text) <= 3:
+                                concentration = grad_text
+                            else:
+                                # If not a number, try to extract from class name
+                                grad_classes = grad_elem.get('class', [])
+                                for cls in grad_classes:
+                                    if 'grad-' in cls:
+                                        level_match = re.search(r'grad-(\d)', cls)
+                                        if level_match:
+                                            concentration = level_match.group(1)
+                                            break
+                        
+                        # Add to results list
+                        if pollen_type:
+                            pollen_items.append({
+                                'type': pollen_type,
+                                'concentration': concentration
+                            })
+                            logging.info(f"Found pollen: {pollen_type}, concentration: {concentration}")
+                    except Exception as e:
+                        logging.warning(f"Error processing pollen item: {e}")
+        
+        # Method 3: Try backup parsing method
+        if not pollen_items:
+            logging.warning("No pollen data found, trying backup parsing method")
+            
+            # Try to find all pollen items directly
+            all_items = soup.select('div.pollenflug-item')
+            
+            for item in all_items:
+                try:
+                    name_elem = item.select_one('div.name')
+                    grad_elem = item.select_one('div.grad')
+                    
+                    if name_elem and grad_elem:
+                        pollen_type = name_elem.text.strip()
+                        
+                        # Get concentration value
+                        concentration = '0'  # Default to 0
+                        grad_text = grad_elem.text.strip()
+                        
+                        if grad_text.isdigit() and 0 <= int(grad_text) <= 3:
+                            concentration = grad_text
+                        else:
+                            # If not a number, try to extract from class name
+                            grad_classes = grad_elem.get('class', [])
+                            for cls in grad_classes:
+                                if cls in burden_to_concentration:
+                                    concentration = burden_to_concentration[cls]
+                                    break
+                        
+                        # Add to results list
+                        if pollen_type:
+                            pollen_items.append({
+                                'type': pollen_type,
+                                'concentration': concentration
+                            })
+                            logging.info(f"Backup method found pollen: {pollen_type}, concentration: {concentration}")
+                except Exception as e:
+                    logging.warning(f"Error processing pollen item with backup method: {e}")
+        
+        # Add missing pollen types with concentration 0
+        if pollen_items:
+            logging.info("Checking for missing pollen types")
+            
+            # Get all found pollen types
+            found_types = set(item['type'] for item in pollen_items)
+            
+            # Add missing types
+            for pollen_name in pollen_types.values():
+                if pollen_name not in found_types:
+                    pollen_items.append({
+                        'type': pollen_name,
+                        'concentration': '0'
+                    })
+                    logging.info(f"Added missing pollen type: {pollen_name} with concentration 0")
+            
+            logging.info(f"Data scraping successful, found {len(pollen_items)} pollen types")
+            return {
+                'date': today_date,
+                'title': forecast_title,
+                'pollen_items': pollen_items,
+                'city': city
+            }
+        
+        # If still no data found, return error
+        logging.error("Cannot extract pollen data from webpage")
+        return {
+            'date': datetime.datetime.now().strftime("%Y-%m-%d"),
+            'title': f"Pollen Forecast for {city.capitalize()} (Scraping Failed)",
+            'pollen_items': [
+                {'type': f'Error: Cannot extract pollen data from webpage', 'concentration': '0'}
+            ],
+            'error': "Cannot extract pollen data. Website structure may have changed.",
+            'city': city
+        }
+    except Exception as e:
+        logging.error(f"Error scraping data: {str(e)}")
+        # Return error information
+        return {
+            'date': datetime.datetime.now().strftime("%Y-%m-%d"),
+            'title': f"Pollen Forecast for {city.capitalize()} (Scraping Failed)",
+            'pollen_items': [
+                {'type': f'Error: {str(e)}', 'concentration': '0'}
+            ],
+            'error': str(e),
+            'city': city
+        }
+
+    """
+    Scrape pollen data for the specified city
+    
+    Args:
+        city (str): City name, if None it will be taken from environment variables
+        
+    Returns:
+        dict: Dictionary containing pollen data
+    """
+    # Get city name from environment variables if not provided
+    city = city or os.environ.get('CITY_NAME', 'berlin').lower()
+    
+    # Use the wetteronline.de URL format
+    url = f"https://www.wetteronline.de/pollen/{city}"
+    logging.info(f"Starting to scrape pollen data: {url}")
+    
+    try:
+        # Add User-Agent header to avoid being blocked
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()  # Raise exception if request failed
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Print page title for debugging
+        logging.info(f"Page title: {soup.title.text if soup.title else 'No title'}")
+        
+        # Get current date
+        today_date = datetime.datetime.now().strftime("%Y-%m-%d")
+        
+        # Get the forecast title
+        try:
+            forecast_title_elem = soup.select_one('div.text-headline')
+            if forecast_title_elem:
+                forecast_title = forecast_title_elem.text.strip()
+            else:
+                forecast_title = f"Pollen Forecast - {city.capitalize()}"
+        except (AttributeError, TypeError):
+            forecast_title = f"Pollen Forecast - {city.capitalize()}"
+            logging.warning(f"Cannot find forecast title, using default: {forecast_title}")
+        
+        # Get today's date label
+        try:
+            today_tab = soup.select_one('div.tab-btn.active')
+            if today_tab:
+                today_date = today_tab.text.strip()
+                logging.info(f"Found current date label: {today_date}")
+        except Exception as e:
+            logging.warning(f"Error getting date label: {e}")
+
         # Parse pollen data
         pollen_items = []
         
@@ -252,6 +511,7 @@ def format_email_content(data, language='en'):
             'greeting': "Stay healthy!",
             'footer_auto': "This email is generated by an automated system. Please do not reply.",
             'footer_source': "Data Source: wetteronline.de",
+            'pollen_count': "Total pollen types: ",
             'error_title': "Warning: Data Scraping Issue",
             'error_check': "Please check if the website structure has changed or contact the script maintainer. You can visit the website manually to check the latest data:",
             'levels': {
@@ -271,6 +531,7 @@ def format_email_content(data, language='en'):
             'greeting': "Bleiben Sie gesund!",
             'footer_auto': "Diese E-Mail wird von einem automatisierten System generiert. Bitte antworten Sie nicht.",
             'footer_source': "Datenquelle: wetteronline.de",
+            'pollen_count': "Pollentypen insgesamt: ",
             'error_title': "Warnung: Problem beim Datenabrufen",
             'error_check': "Bitte überprüfen Sie, ob sich die Website-Struktur geändert hat, oder kontaktieren Sie den Skript-Betreuer. Sie können die Website manuell besuchen, um die neuesten Daten zu überprüfen:",
             'levels': {
@@ -290,6 +551,7 @@ def format_email_content(data, language='en'):
             'greeting': "祝您健康每一天！",
             'footer_auto': "此邮件由自动系统生成，请勿回复。",
             'footer_source': "数据来源: wetteronline.de",
+            'pollen_count': "花粉类型总数: ",
             'error_title': "警告：数据抓取遇到问题",
             'error_check': "请检查网站结构是否已更改或联系脚本维护人员。您可以手动访问以下网站查看最新数据:",
             'levels': {
@@ -358,10 +620,11 @@ def format_email_content(data, language='en'):
                 </tr>
     """
     
-    # Sort by concentration, with higher concentrations at the top
+    # Sort by concentration, with higher concentrations at the top, but ensure all items are shown
     sorted_items = sorted(data['pollen_items'], 
-                         key=lambda x: (x['concentration'] == '0', x['type']))
+                         key=lambda x: (int(x['concentration']) == 0, -int(x['concentration']) if x['concentration'].isdigit() else 0, x['type']))
     
+    # Ensure we show all pollen types
     for item in sorted_items:
         concentration = item['concentration']
         css_class = ""
@@ -403,6 +666,7 @@ def format_email_content(data, language='en'):
             <div class="footer">
                 <p>{text['footer_auto']}</p>
                 <p>{text['footer_source']} <a href="https://www.wetteronline.de/pollen" target="_blank" style="color: #3498db;">wetteronline.de</a></p>
+                <p>{text['pollen_count']} {len(sorted_items)}</p>
                 <footer class="page-footer">
                     <p>© 2025 <a href="https://yliu.tech/" class="text-blue-600 hover:underline" style="color: #3498db;">Yiqiang Adrian Liu</a>. All rights reserved. View the full project on <a href="https://github.com/jumpjumptiger007/pollen-alert-germany" class="text-blue-600 hover:underline" style="color: #3498db;">GitHub</a></p>
                 </footer>
@@ -413,6 +677,7 @@ def format_email_content(data, language='en'):
     """
     
     return html_content
+
 
 def send_email(content, config=None):
     """
