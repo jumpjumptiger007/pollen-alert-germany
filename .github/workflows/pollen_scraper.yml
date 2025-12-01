@@ -36,5 +36,6 @@ jobs:
         CITY_NAME: ${{ secrets.CITY_NAME }}
         SENDER_NAME: ${{ secrets.SENDER_NAME }}
         LANGUAGE: ${{ secrets.LANGUAGE }}
+        VISIBLE_EMAIL_FROM: ${{ secrets.VISIBLE_EMAIL_FROM }} # New variable for email sending
       run: |
         python pollen_scraper.py
