@@ -51,7 +51,7 @@ In your forked repository, you need to set up the following GitHub Secrets for e
 
 **Optional secrets:**
 - `CITY_NAME`: City name (default is "berlin")
-- **`VISIBLE_EMAIL_FROM`**: **(New)** The email address displayed in the "From" header. Use this to set an **alias address** if your `EMAIL_ADDRESS` is the primary account used for login. If not set, it defaults to `EMAIL_ADDRESS`.
+- `VISIBLE_EMAIL_FROM`: (New) The email address displayed in the "From" header. Use this to set an **alias address** if your `EMAIL_ADDRESS` is the primary account used for login. If not set, it defaults to `EMAIL_ADDRESS`.
 - `USE_SSL`: Whether to use SSL connection (true or false)
 - `SMTP_AUTH_REQUIRED`: Whether SMTP authentication is required (true or false)
 - `SENDER_NAME`: Sender name (default is "Pollen Alert")
