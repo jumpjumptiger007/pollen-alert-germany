@@ -81,13 +81,14 @@ def scrape_pollen_data(city=None):
             'strongburden': '3'    # High
         }
         
-        # Define all pollen types to ensure we capture all 14 types
+        # Define all pollen types to ensure we capture all 15 types (*** MODIFICATION 1/3: Added 'Oak' ***)
         pollen_types = {
             'amb': 'Ambrosia',  # Ragweed
             'rum': 'Ampfer',    # Sorrel
             'mug': 'Beifuß',    # Mugwort
             'bir': 'Birke',     # Birch
             'buc': 'Buche',     # Beech
+            'eic': 'Eiche',     # Oak <--- NEW TYPE
             'erl': 'Erle',      # Alder
             'esc': 'Esche',     # Ash
             'gra': 'Gräser',    # Grasses
@@ -425,13 +426,14 @@ def scrape_pollen_data(city=None):
         if not pollen_items:
             logging.warning("Cannot extract pollen data from webpage, using default values")
             
-            # Default values based on typical data
+            # Default values based on typical data (*** MODIFICATION 2/3: Added 'Eiche' default ***)
             default_items = [
                 {'type': 'Ambrosia', 'concentration': '0'},
                 {'type': 'Ampfer', 'concentration': '0'},
                 {'type': 'Beifuß', 'concentration': '0'},
                 {'type': 'Birke', 'concentration': '0'},
                 {'type': 'Buche', 'concentration': '0'},
+                {'type': 'Eiche', 'concentration': '0'}, # <-- NEW DEFAULT
                 {'type': 'Erle', 'concentration': '1'},
                 {'type': 'Esche', 'concentration': '1'},
                 {'type': 'Gräser', 'concentration': '0'},
@@ -481,13 +483,14 @@ def format_email_content(data, language='en'):
     city = data.get('city', os.environ.get('CITY_NAME', 'Berlin'))
     today = datetime.datetime.now().strftime('%Y-%m-%d')
     
-    # Pollen types translations (German to Chinese and English)
+    # Pollen types translations (German to Chinese and English) (*** MODIFICATION 3/3: Added 'Eiche' translation ***)
     pollen_translations = {
         'Ambrosia': {'en': 'Ragweed', 'zh': '豚草'},
         'Ampfer': {'en': 'Sorrel', 'zh': '酸模'},
         'Beifuß': {'en': 'Mugwort', 'zh': '艾蒿'},
         'Birke': {'en': 'Birch', 'zh': '桦树'},
         'Buche': {'en': 'Beech', 'zh': '山毛榉'},
+        'Eiche': {'en': 'Oak', 'zh': '橡树'}, # <-- NEW TRANSLATION
         'Erle': {'en': 'Alder', 'zh': '桤木'},
         'Esche': {'en': 'Ash', 'zh': '梣树'},
         'Gräser': {'en': 'Grasses', 'zh': '草'},
@@ -693,6 +696,7 @@ def send_email(content, config=None):
     # If no configuration provided, get from environment variables
     if config is None:
         config = {
+            # email_from 用于 SMTP 登录认证 (必须是主账户)
             'email_from': os.environ.get('EMAIL_ADDRESS'),
             'email_to': os.environ.get('RECIPIENT_EMAIL'),
             'email_password': os.environ.get('EMAIL_PASSWORD'),
@@ -702,7 +706,10 @@ def send_email(content, config=None):
             'smtp_auth_required': os.environ.get('SMTP_AUTH_REQUIRED', 'true').lower() == 'true',
             'sender_name': os.environ.get('SENDER_NAME', 'Pollen Alert'),
             'city': os.environ.get('CITY_NAME', 'Berlin'),
-            'language': os.environ.get('LANGUAGE', 'en')
+            'language': os.environ.get('LANGUAGE', 'en'),
+            # === 新增行：用于邮件头的可见地址 (可以是别名)，如果未设置则默认使用 EMAIL_ADDRESS ===
+            'visible_sender_address': os.environ.get('VISIBLE_EMAIL_FROM', os.environ.get('EMAIL_ADDRESS'))
+            # ===================================================================================
         }
     
     # Check required configuration
@@ -726,8 +733,9 @@ def send_email(content, config=None):
     
     # Create email object
     msg = MIMEMultipart()
-    # Use formataddr to set sender name
-    msg['From'] = formataddr((config['sender_name'], config['email_from']))
+    # === 修改行：使用 visible_sender_address 作为邮件头地址 ===
+    msg['From'] = formataddr((config['sender_name'], config['visible_sender_address'])) 
+    # ======================================================
     msg['To'] = config['email_to']
     msg['Subject'] = subject
     
@@ -749,7 +757,7 @@ def send_email(content, config=None):
         server.timeout = 60
         
         if config['smtp_auth_required']:
-            # Login authentication
+            # Login authentication (使用 email_from, 必须是主账户)
             logging.info(f"Using {config['email_from']} for SMTP authentication")
             server.login(config['email_from'], config['email_password'])
         
@@ -809,7 +817,8 @@ def main(args=None):
     # Parse arguments
     parser = argparse.ArgumentParser(description='Scrape pollen data and send email notification')
     parser.add_argument('--city', type=str, help='City name')
-    parser.add_argument('--email-from', type=str, help='Sender email address')
+    # email-from 参数现在用于 SMTP 登录认证
+    parser.add_argument('--email-from', type=str, help='Sender email address (used for SMTP login)')
     parser.add_argument('--email-to', type=str, help='Recipient email address')
     parser.add_argument('--email-password', type=str, help='Email password or app password')
     parser.add_argument('--smtp-server', type=str, help='SMTP server address')
@@ -821,6 +830,9 @@ def main(args=None):
                         help='Email provider, can automatically set SMTP parameters')
     parser.add_argument('--language', type=str, choices=['en', 'de', 'zh'], default='en', 
                         help='Email language: en (English), de (German), zh (Chinese)')
+    # === 新增命令行参数：用于设置邮件头的可见发件人地址 ===
+    parser.add_argument('--visible-from', type=str, help='Visible sender email address (can be an alias)')
+    # ======================================================
     
     # Parse command line arguments
     args = parser.parse_args(args if args is not None else sys.argv[1:])
@@ -832,7 +844,10 @@ def main(args=None):
     
     # Configure email sending
     email_config = {
+        # email_from: 用于 SMTP 登录认证，必须是主账户
         'email_from': args.email_from or os.environ.get('EMAIL_ADDRESS'),
+        # visible_sender_address: 用于邮件头，可以是别名
+        'visible_sender_address': args.visible_from or os.environ.get('VISIBLE_EMAIL_FROM') or args.email_from or os.environ.get('EMAIL_ADDRESS'),
         'email_to': args.email_to or os.environ.get('RECIPIENT_EMAIL'),
         'email_password': args.email_password or os.environ.get('EMAIL_PASSWORD'),
         'smtp_server': args.smtp_server or provider_settings.get('smtp_server') or os.environ.get('SMTP_SERVER'),
